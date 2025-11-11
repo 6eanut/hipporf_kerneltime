@@ -9,7 +9,7 @@ import sys
 from datetime import datetime
 
 def read_kernel_list(file_path):
-    """Read kernel names from a file (one per line)."""
+    """Read kernel names or patterns from a file (one per line)."""
     with open(file_path, "r") as f:
         kernels = [line.strip() for line in f if line.strip()]
     return kernels
@@ -53,16 +53,23 @@ def run_hipprof(run_cmd, kernel_list_file, repeat=10):
         with open(pmc_file, "r") as f:
             text = f.read()
 
-        for kernel_name in kernel_names:
-            pattern = rf'kernel-name:"{re.escape(kernel_name)}".*?kernel time\s+([\d.]+)\(s\)'
-            match = re.search(pattern, text, re.S)
-            if match:
-                kernel_time = float(match.group(1))
-                all_results[kernel_name].append(kernel_time)
-                print(f"[OK] {kernel_name} run {i}: {kernel_time:.6f}s")
+        for kernel_pattern in kernel_names:
+            # Support wildcard "*" → regex ".*"
+            regex_pattern = re.escape(kernel_pattern).replace(r'\*', '.*')
+            pattern = rf'kernel-name:"{regex_pattern}".*?kernel time\s+([\d.]+)\(s\)'
+            matches = re.findall(pattern, text, re.S)
+
+            if len(matches) == 1:
+                kernel_time = float(matches[0])
+                all_results[kernel_pattern].append(kernel_time)
+                print(f"[OK] {kernel_pattern} run {i}: {kernel_time:.6f}s")
+            elif len(matches) > 1:
+                print(f"[WARN] Multiple matches for {kernel_pattern}, using first one.")
+                kernel_time = float(matches[0])
+                all_results[kernel_pattern].append(kernel_time)
             else:
-                print(f"[WARN] kernel {kernel_name} not found in pmc file.")
-                all_results[kernel_name].append(None)
+                print(f"[WARN] kernel {kernel_pattern} not found in pmc file.")
+                all_results[kernel_pattern].append(None)
 
         # Move pmc file to temp/
         dst_file = os.path.join("temp", f"pmc_results_{pid}.txt")
